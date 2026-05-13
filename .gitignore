@@ -1,0 +1,25 @@
+# macOS
+.DS_Store
+
+# Swift Package Manager
+.build/
+.swiftpm/
+*.xcodeproj/xcuserdata/
+Package.resolved
+
+# Xcode user state
+xcuserdata/
+
+# Python binary blob — must be downloaded via Scripts/setup-python.sh
+Python.xcframework/
+
+# Pyodide runtime — must be downloaded via Scripts/fetch-pyodide.sh
+Resources/pyodide-runtime/
+
+# Build & tmp
+*.o
+*.d
+*.dia
+DerivedData/
+*.pyc
+__pycache__/
