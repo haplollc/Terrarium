@@ -24,17 +24,13 @@ import PackageDescription
 let package = Package(
     name: "Terrarium",
     platforms: [
-        .iOS(.v16),
-        .macOS(.v13)
+        .iOS(.v17),     // ContentUnavailableView + new SwiftUI animation APIs
+        .macOS(.v14)
     ],
     products: [
         .library(name: "Terrarium", targets: ["Terrarium"]),
     ],
     dependencies: [
-        // Used by the runner sheet to render code blocks with syntax
-        // highlighting. If you don't render UI from Terrarium, this is
-        // a no-cost dependency (the markdown views just won't be used).
-        .package(url: "https://github.com/gonzalezreal/swift-markdown-ui", from: "2.4.0"),
         // Used by the package manager to unzip wheels downloaded from
         // PyPI. Pure Swift, no native deps.
         .package(url: "https://github.com/weichsel/ZIPFoundation", from: "0.9.19"),
@@ -53,7 +49,6 @@ let package = Package(
         .target(
             name: "Terrarium",
             dependencies: [
-                .product(name: "MarkdownUI", package: "swift-markdown-ui"),
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
                 "CPython"
             ],
