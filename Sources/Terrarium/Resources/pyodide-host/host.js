@@ -127,14 +127,77 @@ async function installPackage(id, pkg) {
     post({ kind: "installResult", id, pkg, ok: false, error: "Pyodide not yet ready" });
     return;
   }
-  // Stream pip-style progress lines as separate messages so the Swift
-  // side can append them to the runner's Console tab live.
+
   post({ kind: "installProgress", id, line: `Collecting ${pkg}` });
+
   try {
-    await pyodide.runPythonAsync(`
-import micropip
-await micropip.install(${JSON.stringify(pkg)}, keep_going=True)
+    // PREFERRED PATH — pyodide.loadPackage. Works for any package in
+    // Pyodide's official index (numpy, pandas, matplotlib, scipy,
+    // sklearn, etc.), supports a `messageCallback` for live progress,
+    // and handles transitive deps in parallel. Streams lines like
+    // "Loading matplotlib, numpy, contourpy, …" and "Loaded matplotlib".
+    let loadedViaIndex = false;
+    try {
+      await pyodide.loadPackage(pkg, {
+        messageCallback: (msg) => {
+          post({ kind: "installProgress", id, line: `  ${msg}` });
+        },
+        errorCallback: (msg) => {
+          post({ kind: "installProgress", id, line: `  ${msg}` });
+        },
+      });
+      loadedViaIndex = true;
+    } catch (loadErr) {
+      // loadPackage throws for packages not in the Pyodide-built index
+      // — those need micropip's PyPI resolver. We fall through silently
+      // and try micropip next.
+      const m = String(loadErr && loadErr.message || loadErr);
+      // If the error is anything OTHER than "not in index", re-raise.
+      if (!/Can't find a package/i.test(m) && !/not found/i.test(m)) {
+        throw loadErr;
+      }
+      post({ kind: "installProgress", id, line: `  Package not in Pyodide index, falling back to PyPI…` });
+    }
+
+    // FALLBACK PATH — micropip.install for arbitrary PyPI packages.
+    // micropip doesn't have a `messageCallback`, so we monkey-patch
+    // Python's stdout to stream lines back as they're printed. Then
+    // we run micropip with verbose=True so it prints per-dep progress.
+    if (!loadedViaIndex) {
+      // Register a JS function the Python streaming-stdout can call.
+      pyodide.globals.set("__terrarium_pip_emit", (line) => {
+        post({ kind: "installProgress", id, line: `  ${String(line)}` });
+      });
+      await pyodide.runPythonAsync(`
+import sys, micropip
+class _TerrariumStreamingStdout:
+    def __init__(self):
+        self._buffer = ""
+    def write(self, s):
+        self._buffer += s
+        while "\\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\\n", 1)
+            if line.strip():
+                __terrarium_pip_emit(line)
+        return len(s)
+    def flush(self):
+        if self._buffer.strip():
+            __terrarium_pip_emit(self._buffer)
+        self._buffer = ""
+
+_old_stdout = sys.stdout
+sys.stdout = _TerrariumStreamingStdout()
+try:
+    await micropip.install(${JSON.stringify(pkg)}, keep_going=True, verbose=True)
+finally:
+    try: sys.stdout.flush()
+    except Exception: pass
+    sys.stdout = _old_stdout
 `);
+      // Clean up the JS hook.
+      pyodide.globals.delete("__terrarium_pip_emit");
+    }
+
     // After install, look up the installed version for the success line.
     let version = "unknown";
     try {
@@ -146,7 +209,9 @@ _v
 `);
       if (v) version = v;
     } catch (_) {}
+
     try { await syncFS(false); } catch (_) {}
+
     post({ kind: "installProgress", id, line: `Successfully installed ${pkg}-${version}` });
     post({ kind: "installResult", id, pkg, ok: true, version });
   } catch (err) {
