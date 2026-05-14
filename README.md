@@ -3,14 +3,11 @@
 > **Embedded Python 3.13 runtime for iOS & macOS apps**, with `%pip install` magic, a SwiftUI runner sheet, and a Pyodide fallback for the scientific Python stack (matplotlib, numpy, pandas, scipy, scikit-learn).
 
 <p align="center">
-  <video src="https://github.com/haplollc/terrarium/raw/main/Media/demo.mp4"
-         width="380"
-         controls
-         playsinline
-         muted>
-    Your browser doesn't render inline video. Watch it directly:
-    <a href="Media/demo.mp4">Media/demo.mp4</a>.
-  </video>
+  <a href="Media/demo.mp4">
+    <img src="Media/demo.gif" alt="Terrarium runner demo" width="320">
+  </a>
+  <br>
+  <sub>(Tap the GIF for the higher-quality MP4)</sub>
 </p>
 
 ---
