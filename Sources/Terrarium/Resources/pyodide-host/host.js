@@ -104,6 +104,12 @@ async function runPython(id, code) {
   let exitCode = 0;
   try {
     await pyodide.runPythonAsync(code);
+    // Jupyter-style auto-show: if the user's code created matplotlib
+    // figures but never called `.show()` or saved them, auto-render
+    // each figure to a PNG and emit it via the terrarium_show marker.
+    // This is the same convention Jupyter / IPython uses for plt.plot()
+    // calls at the end of a cell — it's what users expect to happen.
+    await autoShowMatplotlibFigures();
   } catch (e) {
     exception = String(e && e.message || e);
     exitCode = 1;
@@ -120,6 +126,36 @@ async function runPython(id, code) {
     exitCode,
     durationMs,
   });
+}
+
+/// Render every open matplotlib figure to a PNG and print it with the
+/// `terrarium_show` marker so the runner's View tab picks them up.
+/// No-op if matplotlib was never imported in this run.
+async function autoShowMatplotlibFigures() {
+  try {
+    await pyodide.runPythonAsync(`
+import sys as _sys
+if 'matplotlib' in _sys.modules or 'matplotlib.pyplot' in _sys.modules:
+    try:
+        import matplotlib.pyplot as _plt
+        import io as _io, base64 as _b64
+        for _num in _plt.get_fignums():
+            _fig = _plt.figure(_num)
+            _buf = _io.BytesIO()
+            _fig.savefig(_buf, format='png', bbox_inches='tight', dpi=120)
+            _buf.seek(0)
+            _encoded = _b64.b64encode(_buf.read()).decode('ascii')
+            print(f"__TERRARIUM_IMG_PNG_B64__:{_encoded}")
+        _plt.close('all')
+    except Exception as _e:
+        # Don't let auto-show ever crash the user's run — they didn't
+        # ask for this behavior, so they shouldn't pay for it failing.
+        import sys as __sys
+        print(f"(auto-show skipped: {_e})", file=__sys.stderr)
+`);
+  } catch (_) {
+    // Same defensive principle on the JS side.
+  }
 }
 
 async function installPackage(id, pkg) {
