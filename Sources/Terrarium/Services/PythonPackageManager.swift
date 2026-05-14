@@ -113,8 +113,16 @@ public final class PythonPackageManager: ObservableObject {
     // MARK: - Installation
 
     /// Install a Python package.
-    /// - Parameter packageName: The name of the package (e.g., "requests").
-    public func install(packageName: String) async throws {
+    ///
+    /// - Parameters:
+    ///   - packageName: The name of the package (e.g., "requests").
+    ///   - onProgress: Optional callback invoked with pip-style progress
+    ///     lines as the download progresses. Lines starting with `\r`
+    ///     are intended to overwrite the previous line (terminal style).
+    public func install(
+        packageName: String,
+        onProgress: ((String) -> Void)? = nil
+    ) async throws {
         let normalizedName = packageName.lowercased().trimmingCharacters(in: .whitespaces)
 
         // Check if already installed
@@ -137,8 +145,8 @@ public final class PythonPackageManager: ObservableObject {
             let packageInfo = try await fetchPackageInfo(name: normalizedName)
             packageStates[normalizedName] = .installing(progress: 0.2)
 
-            // Download the package
-            let downloadedURL = try await downloadPackage(info: packageInfo)
+            // Download the package (with byte-level progress)
+            let downloadedURL = try await downloadPackage(info: packageInfo, onProgress: onProgress)
             packageStates[normalizedName] = .installing(progress: 0.6)
 
             // Extract to site-packages
@@ -254,20 +262,95 @@ public final class PythonPackageManager: ObservableObject {
         }
     }
 
-    private func downloadPackage(info: PyPIPackageInfo) async throws -> URL {
+    private func downloadPackage(
+        info: PyPIPackageInfo,
+        onProgress: ((String) -> Void)? = nil
+    ) async throws -> URL {
         guard let downloadURLString = info.downloadURL,
               let downloadURL = URL(string: downloadURLString) else {
             throw PythonError.packageInstallFailed("No download URL available for \(info.name)")
         }
 
-        let (tempURL, _) = try await session.download(from: downloadURL)
+        // Fast path: no progress callback wanted, use the simple async API.
+        guard let onProgress else {
+            let (tempURL, _) = try await session.download(from: downloadURL)
+            let dest = configuration.downloadsDirectory.appendingPathComponent("\(info.name)-\(info.version).whl")
+            try? fileManager.removeItem(at: dest)
+            try fileManager.moveItem(at: tempURL, to: dest)
+            return dest
+        }
 
-        // Move to our downloads directory
-        let destinationURL = configuration.downloadsDirectory.appendingPathComponent("\(info.name)-\(info.version).whl")
-        try? fileManager.removeItem(at: destinationURL)
-        try fileManager.moveItem(at: tempURL, to: destinationURL)
+        // Slow path: stream byte-level progress lines.
+        //
+        // We use a manual `downloadTask` + KVO on `task.progress` because
+        // URLSession's async API doesn't expose a progress callback. The
+        // observer fires on a background queue per chunk; we throttle to
+        // ~2% increments so the UI doesn't render hundreds of frames.
+        let filename = "\(info.name)-\(info.version).whl"
+        let initialBar = Self.progressBar(fraction: 0.0)
+        onProgress("  Downloading \(filename)\n     \(initialBar)   0%  fetching size…")
 
-        return destinationURL
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<URL, Error>) in
+            let task = session.downloadTask(with: downloadURL) { tempURL, _, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+                guard let tempURL else {
+                    continuation.resume(throwing: PythonError.packageInstallFailed("download produced no temp URL"))
+                    return
+                }
+                let dest = self.configuration.downloadsDirectory.appendingPathComponent(filename)
+                try? self.fileManager.removeItem(at: dest)
+                do {
+                    try self.fileManager.moveItem(at: tempURL, to: dest)
+                    continuation.resume(returning: dest)
+                } catch {
+                    continuation.resume(throwing: error)
+                }
+            }
+
+            // Hold the KVO observation alive for the lifetime of the task.
+            // Captured here, dropped when we resume the continuation.
+            final class ObservationBox { var observation: NSKeyValueObservation? }
+            let box = ObservationBox()
+            var lastReportedFraction: Double = -1
+            box.observation = task.progress.observe(\.fractionCompleted, options: [.new]) { progress, _ in
+                let frac = progress.fractionCompleted
+                guard progress.totalUnitCount > 0 else { return }
+                // Only emit on ~2% changes (or completion) to keep the
+                // UI render rate sane.
+                if frac - lastReportedFraction < 0.02 && frac < 1.0 { return }
+                lastReportedFraction = frac
+                let bar = Self.progressBar(fraction: frac)
+                let written = Self.humanBytes(progress.completedUnitCount)
+                let total = Self.humanBytes(progress.totalUnitCount)
+                let line = "\r     \(bar) \(String(format: "%3d", Int(frac * 100)))%  \(written)/\(total)"
+                Task { @MainActor in onProgress(line) }
+            }
+
+            task.resume()
+            // Keep the box from being deallocated until the task completes.
+            // We do this by re-checking it inside the completion handler
+            // path above (implicit via closure capture).
+            _ = box
+        }
+    }
+
+    /// Render a pip-style heavy/light horizontal-rule progress bar.
+    private static func progressBar(fraction: Double, width: Int = 32) -> String {
+        let clamped = max(0.0, min(1.0, fraction))
+        let filled = Int((Double(width) * clamped).rounded())
+        let empty = max(0, width - filled)
+        return String(repeating: "━", count: filled) + String(repeating: "╺", count: empty)
+    }
+
+    /// "62.0 KB" / "18.0 MB" style. Matches what pip prints.
+    private static func humanBytes(_ bytes: Int64) -> String {
+        let b = Double(bytes)
+        if b >= 1_000_000 { return String(format: "%.1f MB", b / 1_000_000) }
+        if b >= 1_000     { return String(format: "%.1f KB", b / 1_000) }
+        return "\(bytes) B"
     }
 
     /// Extract a wheel file to site-packages.

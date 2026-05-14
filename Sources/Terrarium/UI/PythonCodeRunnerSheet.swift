@@ -459,13 +459,14 @@ private class CodeRunnerViewModel: ObservableObject {
             }
 
             // Stream `%pip` magic-command output live into the Console tab
-            // as each install / uninstall completes, so the user sees
-            // progress instead of a frozen UI during a multi-second wheel
-            // download. The callback runs on the main actor.
+            // as each install / uninstall progresses. Goes through
+            // `appendStreamingOutput` so terminal-style carriage returns
+            // (\r) overwrite the current line in place — that's how pip
+            // draws its byte-level progress bar.
             let result = await Terrarium.shared.run(code: code) { [weak self] line in
                 guard let self else { return }
                 guard mySeq == self.runSeq else { return }
-                self.output += line
+                self.output = Self.appendStreamingOutput(line, to: self.output)
             }
             guard mySeq == self.runSeq else { return }
 
@@ -520,6 +521,35 @@ private class CodeRunnerViewModel: ObservableObject {
         durationMs = nil
         images = []
         state = .idle
+    }
+
+    // MARK: Streaming-output append (handles \r the way a terminal does)
+
+    /// Append a streamed `chunk` to `existing`, honoring carriage returns:
+    /// `\r` moves the cursor back to the start of the current line, so
+    /// the next characters overwrite. This is how `pip` (and `wget`,
+    /// `curl`, etc.) animate their progress bars without scrolling the
+    /// terminal. Without this, every progress update would print on its
+    /// own new line and you'd see hundreds of "Downloading … 14%" lines.
+    static func appendStreamingOutput(_ chunk: String, to existing: String) -> String {
+        guard chunk.contains("\r") else { return existing + chunk }
+        var current = existing
+        // Split keeps empty subsequences so "\rX\rY" yields ["", "X", "Y"].
+        let parts = chunk.split(separator: "\r", omittingEmptySubsequences: false).map(String.init)
+        for (i, part) in parts.enumerated() {
+            if i > 0 {
+                // Just hit a \r — truncate `current` back to the most
+                // recent newline (or all the way to empty if none).
+                if let lastNL = current.lastIndex(of: "\n") {
+                    let after = current.index(after: lastNL)
+                    current = String(current[..<after])
+                } else {
+                    current = ""
+                }
+            }
+            current += part
+        }
+        return current
     }
 
     // MARK: Image extraction

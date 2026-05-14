@@ -403,7 +403,14 @@ public final class Terrarium: ObservableObject {
         // as native, fall back to Pyodide automatically.
         emit("Collecting \(rawSpec)", log: &log, onProgress: onProgress)
         do {
-            try await packageManager.install(packageName: name)
+            // Pass `onProgress` through so the package manager's
+            // byte-level download progress streams live into the
+            // runner's console. The progress lines use carriage
+            // returns (\r) so they overwrite in place pip-style.
+            try await packageManager.install(packageName: name, onProgress: onProgress)
+            // Finalize the progress line with a newline so the success
+            // message lands on its own line.
+            onProgress?("\n")
             if let installed = packageManager.installedPackages.first(where: { $0.name.lowercased() == normalized }) {
                 let v = installed.version ?? "unknown"
                 emit("Successfully installed \(installed.name)-\(v)", log: &log, onProgress: onProgress)
