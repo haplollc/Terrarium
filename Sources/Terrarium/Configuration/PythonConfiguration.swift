@@ -68,24 +68,24 @@ public struct PythonConfiguration {
     /// Path to the bundled Python standard library from Python.xcframework.
     /// This is the python-stdlib directory extracted from BeeWare's iOS support package.
     public var bundledStdlibPath: URL? {
-        Bundle.main.url(forResource: "python-stdlib", withExtension: nil)
+        Bundle.module.url(forResource: "python-stdlib", withExtension: nil)
     }
 
     /// Path to the bundled site-packages with pre-installed pure-Python packages.
     public var bundledSitePackagesPath: URL? {
-        Bundle.main.url(forResource: "site-packages", withExtension: nil)
+        Bundle.module.url(forResource: "site-packages", withExtension: nil)
     }
 
     /// Path to the bundled lib-dynload with Python extension modules (.so files).
     public var bundledLibDynloadPath: URL? {
-        Bundle.main.url(forResource: "lib-dynload", withExtension: nil)
+        Bundle.module.url(forResource: "lib-dynload", withExtension: nil)
     }
 
     /// Path to the Python.xcframework (resolved at runtime).
     public var pythonFrameworkPath: URL? {
         // The framework is linked at build time, so we don't need the path at runtime
         // This is primarily for debugging and verification
-        Bundle.main.privateFrameworksURL?.appendingPathComponent("Python.framework")
+        Bundle.module.privateFrameworksURL?.appendingPathComponent("Python.framework")
     }
 
     /// Whether the real Python framework is available.

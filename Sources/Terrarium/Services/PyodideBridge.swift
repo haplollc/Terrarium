@@ -88,20 +88,23 @@ public final class PyodideBridge: NSObject, ObservableObject {
     }
 
     private func loadHostPage() {
-        // Terrarium's `Resources/` directory is added to the host app's
-        // Xcode project as a folder reference, NOT as a SwiftPM resource
-        // bundle — so `Bundle.module` isn't available. The files land
-        // in the main app bundle at the top level.
-        let url = Bundle.main.url(forResource: "host", withExtension: "html",
-                                  subdirectory: "pyodide-host")
-        guard let url else {
-            loadError = "Could not locate pyodide-host/host.html in app bundle. Did you add Packages/Terrarium/Resources/pyodide-host as a folder reference?"
+        // pyodide-host/ lives inside Terrarium's SwiftPM resource bundle
+        // (declared in Package.swift via `.copy("Resources/pyodide-host")`).
+        // `Bundle.module` is the auto-generated package bundle that
+        // SwiftPM injects at compile time.
+        guard let url = Bundle.module.url(
+            forResource: "host",
+            withExtension: "html",
+            subdirectory: "pyodide-host"
+        ) else {
+            loadError = "Could not locate pyodide-host/host.html inside Terrarium's resource bundle. This indicates the package was built without its Resources — usually a SwiftPM cache issue. Try cleaning the build folder and rebuilding."
             return
         }
-        // Grant read access to the parent dir so the relative
-        // `../pyodide-runtime/pyodide.js` link in host.html works.
-        let readAccessRoot = url.deletingLastPathComponent().deletingLastPathComponent()
-        webView.loadFileURL(url, allowingReadAccessTo: readAccessRoot)
+        // Pyodide's JS host loads adjacent files (pyodide.asm.wasm,
+        // python_stdlib.zip, etc.) via relative paths. Grant the
+        // WKWebView read access to the whole pyodide-host directory.
+        let hostDir = url.deletingLastPathComponent()
+        webView.loadFileURL(url, allowingReadAccessTo: hostDir)
     }
 
     /// Await Pyodide finishing its bootstrap (loading the WASM module,

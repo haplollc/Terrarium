@@ -2,22 +2,18 @@
 //
 // Terrarium — embedded Python runtime for iOS / macOS apps.
 //
-// Provides a SwiftUI-friendly API for running Python scripts on-device
-// using a bundled CPython 3.13 interpreter, plus an optional WebAssembly
-// (Pyodide) fallback for the scientific stack (numpy, pandas, matplotlib,
-// scipy, scikit-learn, etc.) where iOS-native wheels don't exist.
+// Bundles every resource the runner needs directly inside the SwiftPM
+// product. Consumers add a single SwiftPM dependency and get the full
+// Python 3.13 interpreter, the bundled standard library, ~30 pure-Python
+// packages, the C-extension shim layer, and the Pyodide host bridge —
+// no manual Xcode folder references required.
 //
-// To use:
-//   1. Add this package to your Xcode project.
-//   2. Run `./Scripts/setup-python.sh` once to fetch Python.xcframework.
-//   3. Run `./Scripts/fetch-pyodide.sh` once if you want Pyodide support.
-//   4. Drag `Resources/python-stdlib`, `Resources/site-packages`,
-//      `Resources/lib-dynload`, `Resources/pyodide-host`, and (after
-//      fetch) `Resources/pyodide-runtime` into your Xcode target as
-//      folder references (blue folders).
-//   5. `import Terrarium; let result = await Terrarium.shared.run(code: "print('hi')")`
+// One-time setup before first build:
 //
-// See README.md for the full integration walk-through.
+//   ./Scripts/setup-python.sh    # downloads Python.xcframework
+//
+// (We can't ship the framework in git — it's a 112 MB binary blob. The
+// script pulls a pinned BeeWare release.)
 
 import PackageDescription
 
@@ -36,10 +32,15 @@ let package = Package(
         .package(url: "https://github.com/weichsel/ZIPFoundation", from: "0.9.19"),
     ],
     targets: [
-        // System library shim that gives Swift code access to Python's
-        // public C API. The actual `Python.xcframework` must be added
-        // to the host app's Xcode project manually (or via the setup
-        // script that drops it next to the package).
+        // CPython framework — must exist on disk before SwiftPM resolves.
+        // Run Scripts/setup-python.sh to fetch it from BeeWare's
+        // Python-Apple-support release. Gitignored.
+        .binaryTarget(
+            name: "Python",
+            path: "Python.xcframework"
+        ),
+        // Headers + module map giving Swift code access to Python's
+        // public C API.
         .systemLibrary(
             name: "CPython",
             path: "Sources/CPython",
@@ -50,9 +51,19 @@ let package = Package(
             name: "Terrarium",
             dependencies: [
                 .product(name: "ZIPFoundation", package: "ZIPFoundation"),
-                "CPython"
+                "CPython",
+                "Python"
             ],
             path: "Sources/Terrarium",
+            // Every consumer of `import Terrarium` gets these resources
+            // inside `Bundle.module` automatically. No host-app wiring
+            // required — the package is self-contained.
+            resources: [
+                .copy("Resources/python-stdlib"),      // 47 MB — Python stdlib
+                .copy("Resources/site-packages"),      // 13 MB — curated pure-Python packages
+                .copy("Resources/lib-dynload"),        // 14 MB — C extension shims
+                .copy("Resources/pyodide-host"),       // tiny — Pyodide WKWebView host
+            ],
             swiftSettings: [
                 .interoperabilityMode(.C)
             ],

@@ -35,7 +35,10 @@ async function syncFS(populate) {
 async function bootstrap() {
   try {
     pyodide = await loadPyodide({
-      indexURL: "../pyodide-runtime/",
+      // jsDelivr's CDN is Pyodide's canonical distribution channel for
+      // the runtime + ~250 prebuilt WASM packages. Pinned to v0.29.4
+      // to match the loader script in host.html.
+      indexURL: "https://cdn.jsdelivr.net/pyodide/v0.29.4/full/",
       stdout: (text) => { stdoutBuf += text + "\n"; },
       stderr: (text) => { stderrBuf += text + "\n"; },
     });

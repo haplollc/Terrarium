@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <title>Terrarium Pyodide Host</title>
+    <!-- Pyodide is loaded from jsDelivr's CDN. The Pyodide team ships
+         their runtime + ~250 prebuilt WASM packages via this CDN — it's
+         the canonical distribution channel and the URL pattern is part
+         of Pyodide's public contract.
+
+         If you need fully-offline operation, swap this script src for
+         a relative path to a local pyodide.js and copy the matching
+         pyodide-* files alongside. The Pyodide team publishes core
+         tarballs at https://github.com/pyodide/pyodide/releases. -->
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.29.4/full/pyodide.js"></script>
+  </head>
+  <body>
+    <script src="host.js"></script>
+  </body>
+</html>
