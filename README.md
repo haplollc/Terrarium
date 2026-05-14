@@ -2,7 +2,7 @@
 
 > Embedded Python 3.13 runtime for iOS & macOS apps, with a one-line API and a SwiftUI runner sheet.
 
-Terrarium runs real Python scripts inside your iOS/macOS app — no server, no transpile, no JS shim for the simple path. For the hard cases (numpy, pandas, matplotlib, scipy, scikit-learn, anything with C extensions that doesn't ship iOS wheels on PyPI) it falls back to **Pyodide**, fetching packages from the Pyodide CDN on demand and persisting them across launches.
+Terrarium runs real Python scripts inside your iOS/macOS app — no server, no transpile, no JS shim for the simple path. For the hard cases (numpy, pandas, matplotlib, scipy, scikit-learn, anything with C extensions that doesn't ship iOS wheels on PyPI) it falls back to **Pyodide**, fetching the runtime + packages from Pyodide's CDN on demand and persisting them across launches.
 
 ```swift
 import Terrarium
@@ -27,16 +27,27 @@ That's it. No subprocess. No webview (for the CPython path). The interpreter is 
 - **Real CPython 3.13** — bundled via `Python.xcframework`. Pure-Python scripts run natively, fast.
 - **`%pip install <pkg>` magic** — Jupyter-style inline installs from inside any script. Resolves against PyPI, downloads the wheel, drops it into a writable user-site-packages directory. Persistent across launches.
 - **`%pip uninstall <pkg>` and `%pip list`** also work.
-- **Pyodide fallback** for the scientific stack — `import matplotlib` / `import numpy` / `import pandas` etc. routes to a hidden WKWebView running Pyodide. Packages download from the Pyodide CDN on first import, cache to IndexedDB, and persist forever (until the user deletes them in Settings).
+- **Pyodide fallback** for the scientific stack — `import matplotlib` / `import numpy` / `import pandas` etc. routes to a hidden WKWebView running Pyodide. Packages download from jsDelivr's CDN on first import, cache to IndexedDB, and persist forever (until the user deletes them in Settings).
 - **Runner sheet** — drop-in SwiftUI view that gives you a Run/Stop toolbar, a Console tab with ANSI color support (rich, colorama, raw escape codes all work), a View tab for rendered images, live install progress, and an inline code editor.
 - **Image / chart display** — Python scripts call `terrarium_show.show(figure_or_bytes)`; the runner decodes and displays in a View tab.
 - **Package manager UI** — searchable bottom sheet showing CPython-installed + Pyodide-cached packages with per-row delete.
+- **Self-contained package** — all resources (Python stdlib, bundled site-packages, lib-dynload, Pyodide host) ship inside the SwiftPM `Bundle.module`. No manual Xcode folder references required.
 
 ---
 
 ## Installation
 
-### Step 1: Add the Swift package
+### Step 1: Fetch `Python.xcframework`
+
+Terrarium needs the CPython runtime (~112 MB binary). It's not in git because it's a binary blob. Run once after cloning:
+
+```bash
+./Scripts/setup-python.sh
+```
+
+This pulls the pinned iOS arm64 build from BeeWare's [Python-Apple-support](https://github.com/beeware/Python-Apple-support).
+
+### Step 2: Add the Swift package
 
 In Xcode: `File → Add Package Dependencies` → enter `https://github.com/haplollc/Terrarium`.
 
@@ -51,39 +62,7 @@ targets: [
 ],
 ```
 
-### Step 2: Fetch the Python runtime
-
-Terrarium needs `Python.xcframework` (the CPython runtime, ~40 MB). It's not in the git repo because it's a binary blob.
-
-```bash
-cd path/to/Terrarium
-./Scripts/setup-python.sh
-```
-
-This pulls the iOS arm64 build from BeeWare's [Python-Apple-support](https://github.com/beeware/Python-Apple-support) and unpacks it next to the package.
-
-### Step 3 (optional): Fetch the Pyodide runtime
-
-If you want the scientific stack (matplotlib, numpy, pandas, etc.):
-
-```bash
-./Scripts/fetch-pyodide.sh
-```
-
-~6 MB. Drops into `Resources/pyodide-runtime/`.
-
-### Step 4: Wire the bundles into your Xcode target
-
-The Python runtime is a tree of files on disk, not embedded source. Drag the following folders into your Xcode app target as **folder references** (blue folder icon — *not* "Create groups"):
-
-- `Resources/python-stdlib` (47 MB — CPython 3.13 standard library)
-- `Resources/site-packages` (13 MB — curated pure-Python packages: requests, bs4, rich, etc.)
-- `Resources/lib-dynload` (14 MB — CPython C extension shims compiled for iOS)
-- `Resources/pyodide-host` (small — host.html + JS bridge)
-- `Resources/pyodide-runtime` (only after running `fetch-pyodide.sh`)
-- `Python.xcframework` (added next to the package by `setup-python.sh`)
-
-### Step 5: Build & use
+### Step 3: Build & use
 
 ```swift
 import Terrarium
@@ -96,6 +75,8 @@ struct MyApp: App {
     var body: some Scene { … }
 }
 ```
+
+**That's it.** No folder references to add. No SwiftPM resource declarations. `Bundle.module` inside the package has everything: `python-stdlib`, `site-packages`, `lib-dynload`, `pyodide-host`. The package handles its own resource layout.
 
 ---
 
@@ -191,12 +172,16 @@ struct ContentView: View {
                 terrarium_show.show(buf.getvalue())
                 """
         }
-        .terrariumCodeRunner(code: $pythonCode)
+        .sheet(item: $pythonCode.identifiable) { code in
+            PythonCodeRunnerSheet(code: code.value)
+                .presentationDetents([.medium, .large])
+                .presentationDragIndicator(.visible)
+        }
     }
 }
 ```
 
-The `.terrariumCodeRunner(code:)` modifier presents a bottom sheet when `code` is non-nil, with toolbar Run/Stop buttons, segmented Console/View tabs, live install progress, ANSI color support, and inline image rendering.
+The runner sheet has a toolbar Run/Stop button, segmented Console/View tabs, live install progress, ANSI color support, and inline image rendering.
 
 ### Package manager UI
 
@@ -223,7 +208,7 @@ Searchable list of installed CPython + Pyodide packages, with per-package delete
 │         ▼                            ▼                         │
 │   PythonRuntimeService        PyodideBridge                   │
 │   (CPython.xcframework         (hidden WKWebView,             │
-│    in-process)                  Pyodide WASM,                 │
+│    in-process)                  Pyodide WASM from CDN,        │
 │                                  IDBFS persistent fs)         │
 │                                                                │
 │   ⬇ pure-Python only          ⬇ numpy/pandas/scipy/         │
@@ -251,14 +236,29 @@ Pyodide-installed packages live in IndexedDB inside the hidden WebView's data st
 
 Users can delete individual packages from the included `PythonPackageManagerView` — each row has a trash icon. CPython packages wipe their directory; Pyodide packages run `micropip.uninstall` + `shutil.rmtree` on the dist-info.
 
+### Where the bundled resources live
+
+After SwiftPM builds the package, `Bundle.module` for the `Terrarium` target contains:
+
+```
+Terrarium_Terrarium.bundle/
+├── python-stdlib/            (47 MB — CPython 3.13 standard library)
+├── site-packages/            (13 MB — curated pure-Python packages)
+├── lib-dynload/              (14 MB — C extension shims)
+└── pyodide-host/             (small — host.html + JS bridge for the Pyodide WebView)
+```
+
+The Swift code reads from `Bundle.module.url(forResource:withExtension:subdirectory:)`. No host-app folder references required.
+
 ---
 
 ## Limitations
 
 - **iOS / macOS only.** No Linux, no Windows, no Android.
+- **iOS 17+ / macOS 14+.** The package manager UI uses `ContentUnavailableView` (iOS 17 / macOS 14 API).
 - **Pyodide is slower than CPython** for pure-Python loops (~2-3×) and roughly equivalent on numpy-heavy code (the inner C is still vectorized inside WASM). For typical "fetch + plot" workloads this is invisible.
 - **First Pyodide boot is ~2-4 seconds.** The bridge boots eagerly on app startup to hide this.
-- **First package install needs network.** Once cached, every subsequent use is offline.
+- **First package install needs network.** Pyodide downloads from jsDelivr's CDN on first import. Once cached, subsequent uses are offline.
 - **No JIT.** Both runtimes use the standard CPython interpreter (compiled to WASM in Pyodide's case). PyPy-style speedups aren't on the table.
 - **Some Pyodide-incompatible packages** (anything depending on tkinter, system frameworks, or PyPy specifics) can't be installed even via the Pyodide path. Most of the scientific Python ecosystem works.
 
@@ -282,5 +282,4 @@ Built by [Haplo](https://haploapp.com). Stands on the shoulders of:
 
 - [BeeWare](https://beeware.org/) — `Python-Apple-support` ships the `Python.xcframework` we link against.
 - [Pyodide](https://pyodide.org/) — CPython compiled to WebAssembly + the ~250 pre-built WASM wheels of the scientific Python stack.
-- [`swift-markdown-ui`](https://github.com/gonzalezreal/swift-markdown-ui) — Markdown rendering in the runner sheet.
 - [`ZIPFoundation`](https://github.com/weichsel/ZIPFoundation) — wheel extraction.
