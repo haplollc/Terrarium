@@ -263,32 +263,56 @@ async function uninstallPackage(id, pkg) {
     return;
   }
   try {
-    // micropip 0.6+ has uninstall; fall back to manual rm for older
-    // releases bundled in older Pyodide versions.
-    const out = await pyodide.runPythonAsync(`
-import micropip, importlib.metadata as _md, shutil, sys, os
-pkg = ${JSON.stringify(pkg)}
+    await pyodide.runPythonAsync(`
+import importlib.metadata as _md, shutil, sys, sysconfig, os
+from pathlib import Path
+
+pkg_name = ${JSON.stringify(pkg)}
+target = pkg_name.lower().replace("-", "_")
+
+# Same dirs listPackages scans — Pyodide's own site-packages PLUS our
+# IDBFS mount. We have to clean both so an uninstall actually frees the
+# bytes the user expects (whichever dir the package landed in).
+search_dirs = []
+for key in ("purelib", "platlib"):
+    p = sysconfig.get_paths().get(key)
+    if p and p not in search_dirs: search_dirs.append(p)
+persist = "${PERSIST_DIR}/site-packages"
+if persist not in search_dirs:
+    search_dirs.append(persist)
+
+# Try micropip first — it's the cleanest path, handles dependencies, and
+# updates micropip's own bookkeeping. Falls through to manual cleanup
+# below if micropip can't find or uninstall the package.
 try:
+    import micropip
     if hasattr(micropip, "uninstall"):
-        micropip.uninstall(pkg)
-    # Best-effort: wipe the dist-info + top-level package dir.
-    try:
-        dist = _md.distribution(pkg)
-        site = os.path.dirname(dist._path) if hasattr(dist, "_path") else None
-    except Exception:
-        site = None
-    persist = "${PERSIST_DIR}/site-packages"
-    for entry in os.listdir(persist):
+        micropip.uninstall(pkg_name)
+except Exception:
+    pass
+
+# Manual cleanup: scan each site-packages dir for the package's files
+# and remove them. Match by normalized name (PyPI normalizes - and _).
+for site in search_dirs:
+    if not os.path.isdir(site):
+        continue
+    for entry in os.listdir(site):
         low = entry.lower().replace("-", "_")
-        target = pkg.lower().replace("-", "_")
         if low == target or low.startswith(target + "-"):
-            full = os.path.join(persist, entry)
-            if os.path.isdir(full):
-                shutil.rmtree(full, ignore_errors=True)
-            else:
-                try: os.remove(full)
-                except: pass
-    "ok"
+            full = os.path.join(site, entry)
+            try:
+                if os.path.isdir(full):
+                    shutil.rmtree(full, ignore_errors=True)
+                else:
+                    os.remove(full)
+            except Exception:
+                pass
+
+# Drop any importlib-cached refs so a subsequent import doesn't pull
+# the now-deleted module from the meta-path cache.
+for mod in list(sys.modules.keys()):
+    if mod == target or mod.startswith(target + "."):
+        sys.modules.pop(mod, None)
 `);
     try { await syncFS(false); } catch (_) {}
     post({ kind: "uninstallResult", id, pkg, ok: true });
@@ -303,24 +327,72 @@ async function listPackages(id) {
     return;
   }
   try {
+    // Pyodide's `loadPackage` installs into its own internal site-
+    // packages dir (`sysconfig.get_paths()["purelib"]`), NOT into our
+    // /persist IDBFS mount. micropip with no `target` argument also
+    // lands there. So we have to scan BOTH locations to find every
+    // user-installed package.
+    //
+    // We also filter out packages that ship as part of Pyodide's base
+    // distribution (the ~30 things loaded at bootstrap — micropip,
+    // distutils, etc.) so the list only shows packages the user
+    // actually triggered an install for. We do that by reading the
+    // `name` from each dist-info's `INSTALLER` file when present —
+    // packages installed by `loadPackage` get an INSTALLER of
+    // "pyodide.loadPackage", which is exactly what we want to surface.
     const json = await pyodide.runPythonAsync(`
-import importlib.metadata as _md, json, os, sys
-result = []
+import importlib.metadata as _md, json, os, sys, sysconfig
+from pathlib import Path
+
+# Every site-packages dir Python knows about (Pyodide's + our IDBFS mount).
+search_dirs = []
+for key in ("purelib", "platlib"):
+    p = sysconfig.get_paths().get(key)
+    if p and p not in search_dirs: search_dirs.append(p)
 persist = "${PERSIST_DIR}/site-packages"
-# Only enumerate dist-info dirs in the persistent location — bundled
-# Pyodide packages live elsewhere and shouldn't appear as user-managed.
-if os.path.isdir(persist):
-    for entry in os.listdir(persist):
-        if entry.endswith(".dist-info"):
-            try:
-                dist = _md.PathDistribution(__import__("pathlib").Path(persist) / entry)
-                size = 0
-                for f in dist.files or []:
-                    try: size += (dist.locate_file(f)).stat().st_size
-                    except: pass
-                result.append({"name": dist.metadata["Name"], "version": dist.version, "size": size})
-            except Exception as e:
-                pass
+if persist not in search_dirs:
+    search_dirs.append(persist)
+
+# Packages we never want to surface as "user-installed" — these come
+# with the Pyodide WASM runtime itself and the user didn't install them.
+BUILTIN_BASELINE = {
+    "distutils", "pip", "setuptools", "wheel", "pkg_resources",
+    # micropip is the package installer; we load it during bootstrap.
+    # Listing it would be confusing.
+    "micropip",
+}
+
+result = []
+seen = set()
+for d in search_dirs:
+    if not os.path.isdir(d):
+        continue
+    for entry in sorted(os.listdir(d)):
+        if not entry.endswith(".dist-info"):
+            continue
+        try:
+            dist = _md.PathDistribution(Path(d) / entry)
+            name = (dist.metadata.get("Name") or
+                    entry.rsplit("-", 1)[0]).strip()
+            key = name.lower()
+            if key in seen:
+                continue
+            if key in BUILTIN_BASELINE:
+                continue
+            seen.add(key)
+
+            size = 0
+            for f in dist.files or []:
+                try: size += dist.locate_file(f).stat().st_size
+                except Exception: pass
+
+            result.append({
+                "name": name,
+                "version": dist.version or "—",
+                "size": size,
+            })
+        except Exception:
+            pass
 json.dumps(result)
 `);
     post({ kind: "listResult", id, packages: JSON.parse(json) });

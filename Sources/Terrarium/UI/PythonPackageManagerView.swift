@@ -54,8 +54,10 @@ public struct PythonPackageManagerView: View {
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") {
-                        dismiss()
+                    Button(action: { dismiss() }) {
+                        Image(systemName: "xmark")
+                            .font(.body.weight(.medium))
+                            .foregroundColor(.primary)
                     }
                 }
 
