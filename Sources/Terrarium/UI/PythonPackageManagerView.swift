@@ -29,14 +29,12 @@ public struct PythonPackageManagerView: View {
     public var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Tab picker
-                Picker("View", selection: $selectedTab) {
-                    ForEach(PackageTab.allCases, id: \.self) { tab in
-                        Text(tab.displayName).tag(tab)
-                    }
-                }
-                .pickerStyle(.segmented)
-                .padding()
+                // Tab selector. Custom rather than `.pickerStyle(.segmented)`,
+                // whose selected segment ignores `.tint`, so the selection
+                // follows the host app's tint (Haplo presents this sheet with
+                // its accent color, matching its Settings switches).
+                PackageTabSelector(selection: $selectedTab)
+                    .padding()
 
                 // Content
                 switch selectedTab {
@@ -83,7 +81,6 @@ public struct PythonPackageManagerView: View {
                     Text(error)
                 }
             }
-            .tint(.primary)
             .onAppear {
                 loadPyodidePackages()
             }
@@ -368,6 +365,41 @@ private enum PackageTab: CaseIterable {
         case .available: return "Available"
         case .stdlib: return "Built-in"
         }
+    }
+}
+
+/// Segmented tab selector whose selected pill fills with the environment tint,
+/// so it matches the host app's accent (a native segmented Picker ignores
+/// `.tint` for its selected segment).
+private struct PackageTabSelector: View {
+    @Binding var selection: PackageTab
+
+    var body: some View {
+        HStack(spacing: 2) {
+            ForEach(PackageTab.allCases, id: \.self) { tab in
+                let isSelected = tab == selection
+                Button {
+                    selection = tab
+                } label: {
+                    Text(tab.displayName)
+                        .font(.subheadline.weight(isSelected ? .semibold : .medium))
+                        .foregroundStyle(isSelected ? AnyShapeStyle(Color.white) : AnyShapeStyle(.primary))
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 7)
+                        .background {
+                            if isSelected {
+                                Capsule().fill(.tint)
+                            }
+                        }
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
+            }
+        }
+        .padding(3)
+        .background(Capsule().fill(.quaternary))
     }
 }
 
