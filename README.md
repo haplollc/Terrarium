@@ -1,7 +1,5 @@
 # 🌱 Terrarium
 
-[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/jcbuilds)
-
 > **Embedded Python 3.13 runtime for iOS & macOS apps**, with `%pip install` magic, a SwiftUI runner sheet, and a Pyodide fallback for the scientific Python stack (matplotlib, numpy, pandas, scipy, scikit-learn).
 
 <p align="center">
@@ -10,6 +8,12 @@
   </a>
   <br>
   <sub>(Tap the GIF for the higher-quality MP4)</sub>
+</p>
+
+<p align="center">
+  <a href="https://buymeacoffee.com/jcbuilds"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me a Coffee" width="200"></a>
+  <br>
+  <sub>If Terrarium is useful to you, a coffee keeps it going.</sub>
 </p>
 
 ---
