@@ -1,5 +1,7 @@
 # 🌱 Terrarium
 
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/jcbuilds)
+
 > **Embedded Python 3.13 runtime for iOS & macOS apps**, with `%pip install` magic, a SwiftUI runner sheet, and a Pyodide fallback for the scientific Python stack (matplotlib, numpy, pandas, scipy, scikit-learn).
 
 <p align="center">
