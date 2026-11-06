@@ -285,18 +285,22 @@ cd terrarium
 
 This pulls the iOS arm64 build from [BeeWare's Python-Apple-support](https://github.com/beeware/Python-Apple-support).
 
-### 2. Add as a SwiftPM dependency
+### 2. Add your checkout as a SwiftPM dependency
 
-In Xcode: **File → Add Package Dependencies** → `https://github.com/haplollc/terrarium`
+`Python.xcframework` exists only in the checkout where you ran the script, so add that folder, not the GitHub URL. SwiftPM's own checkout of the URL has no framework and fails with "local binary target 'Python' ... does not contain a binary artifact".
+
+In Xcode: **File → Add Package Dependencies → Add Local…** → choose the `terrarium` folder
 
 Or in `Package.swift`:
 
 ```swift
 dependencies: [
-    .package(url: "https://github.com/haplollc/terrarium", from: "1.0.0"),
+    .package(path: "../terrarium"),
 ],
 targets: [
-    .target(name: "MyApp", dependencies: ["Terrarium"]),
+    .target(name: "MyApp", dependencies: [
+        .product(name: "Terrarium", package: "terrarium"),
+    ]),
 ],
 ```
 
