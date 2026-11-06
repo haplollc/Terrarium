@@ -344,10 +344,6 @@ let result = await Terrarium.shared.run(
 )
 ```
 
-#### `stop()`
-
-Cancel the in-flight run. Returns control to `.idle` immediately. Whether Python itself halts depends on whether your script is at a yield point.
-
 ### `PythonCodeRunnerSheet`
 
 Drop-in SwiftUI sheet view with Run/Stop/Clear toolbar, segmented Console/View tabs, live install progress, ANSI color rendering, and auto-display for matplotlib figures.
