@@ -394,7 +394,7 @@ You usually don't need this for matplotlib — Terrarium auto-renders open figur
 │         ┌─────────────┴─────────────┐                       │
 │         ▼                            ▼                       │
 │   PythonRuntimeService        PyodideBridge                  │
-│   (CPython.xcframework         (hidden WKWebView,            │
+│   (Python.xcframework          (hidden WKWebView,            │
 │    in-process)                  Pyodide WASM from CDN,       │
 │                                  IDBFS persistent fs)        │
 │                                                              │
@@ -405,7 +405,7 @@ You usually don't need this for matplotlib — Terrarium auto-renders open figur
 
 ### Where things live at runtime
 
-- **CPython user-installed packages**: `~/Library/Application Support/<bundle>/python/site-packages/` — persists across launches, deletes when the app is uninstalled.
+- **CPython user-installed packages**: `~/Library/Application Support/Terrarium/site-packages/` — persists across launches, deletes when the app is uninstalled.
 - **Pyodide-installed packages**: IndexedDB inside the hidden WebView's persistent data store. The bridge mounts an IDBFS-backed FS at `/persist` and `sync()`s after every install/uninstall.
 - **Bundled Python stdlib + 30 default packages**: Inside the `Terrarium_Terrarium.bundle/` SwiftPM resource bundle — auto-located via `Bundle.module`.
 
