@@ -4,11 +4,13 @@
 # Python-Apple-support release and drop it next to this package.
 #
 # Terrarium links against this xcframework but doesn't commit it to the
-# repo (it's a ~40 MB binary blob). Run once per checkout.
+# repo (it's a ~112 MB binary blob). Run once per checkout.
 
 set -euo pipefail
 
-PYTHON_SUPPORT_VERSION="${PYTHON_SUPPORT_VERSION:-3.13-b9}"
+# 3.13-b13 is Python 3.13.11, the build the headers in Sources/CPython and
+# the bundled stdlib and lib-dynload modules come from.
+PYTHON_SUPPORT_VERSION="${PYTHON_SUPPORT_VERSION:-3.13-b13}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TERRARIUM_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
