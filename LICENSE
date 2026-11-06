@@ -28,5 +28,5 @@ Bundled third-party code retains its original license:
 - Bundled pure-Python packages in Resources/site-packages/:
   Each retains its individual license (Apache 2.0, MIT, BSD, etc.) —
   consult each package's own metadata.
-- Pyodide (Resources/pyodide-runtime/, after fetch): MPL 2.0
+- Pyodide (not bundled; loaded at runtime from the jsDelivr CDN): MPL 2.0
   https://github.com/pyodide/pyodide/blob/main/LICENSE
